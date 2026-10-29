@@ -27,14 +27,19 @@ class PbsBroker:
             raise PbsError("unsupported PBS command")
         command = args[0]
         binary = os.environ.get(f"PBS_{command.upper()}", command)
+        # Some site-local PBS authentication helpers reject qsub when its
+        # standard streams are anonymous pipes.  Let qsub inherit the login
+        # terminal exactly as it does when run directly by the user.  qsub's
+        # job ID and diagnostics consequently appear in that terminal.
+        capture_output = command != "qsub"
         result = subprocess.run(
-            [binary, *args[1:]], text=True, capture_output=True, check=False
+            [binary, *args[1:]], text=True, capture_output=capture_output, check=False
         )
         return {
             "ok": result.returncode == 0,
             "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
+            "stdout": result.stdout or "",
+            "stderr": result.stderr or "",
             "error": "" if result.returncode == 0 else f"{command} exited with status {result.returncode}",
         }
 
