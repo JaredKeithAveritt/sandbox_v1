@@ -35,8 +35,16 @@ class PbsBroker:
         # terminal exactly as it does when run directly by the user.  qsub's
         # job ID and diagnostics consequently appear in that terminal.
         capture_output = command != "qsub"
+        # qsub is also given its own session.  This matches `setsid qsub`,
+        # which succeeds on the target PBS installation, rather than making
+        # qsub a child in the broker daemon's session.
+        own_session = command == "qsub"
         result = subprocess.run(
-            [binary, *args[1:]], text=True, capture_output=capture_output, check=False
+            [binary, *args[1:]],
+            text=True,
+            capture_output=capture_output,
+            start_new_session=own_session,
+            check=False,
         )
         return {
             "ok": result.returncode == 0,
