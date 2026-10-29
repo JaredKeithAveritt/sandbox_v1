@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
@@ -23,27 +24,41 @@ class PbsError(RuntimeError):
 
 
 class PbsBroker:
-    """Run an allowlisted PBS client command on the host."""
+    """Relay allowlisted PBS commands through a normal SSH login session."""
+
+    def __init__(self):
+        # PBS on this cluster accepts authenticated submissions from an SSH
+        # login context.  The default is the current submit host; override it
+        # for a dedicated login node when needed.
+        self.ssh_host = os.environ.get(
+            "BWRAP_PBS_SSH_HOST", socket.gethostname().split(".", 1)[0]
+        )
 
     def run(self, args):
         if not args or args[0] not in SUPPORTED_COMMANDS:
             raise PbsError("unsupported PBS command")
         command = args[0]
-        binary = os.environ.get(f"BWRAP_PBS_{command.upper()}", command)
-        # Some site-local PBS authentication helpers reject qsub when its
-        # standard streams are anonymous pipes.  Let qsub inherit the login
-        # terminal exactly as it does when run directly by the user.  qsub's
-        # job ID and diagnostics consequently appear in that terminal.
+        binary = os.environ.get(
+            f"BWRAP_PBS_{command.upper()}", shutil.which(command) or command
+        )
+        remote_command = "cd {} && exec {}".format(
+            shlex.quote(str(Path.cwd())), shlex.join([binary, *args[1:]])
+        )
+        # Force a terminal because the target PBS site authenticates qsub
+        # successfully from a normal SSH login session.
+        relay = [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-tt",
+            self.ssh_host,
+            remote_command,
+        ]
         capture_output = command != "qsub"
-        # qsub is also given its own session.  This matches `setsid qsub`,
-        # which succeeds on the target PBS installation, rather than making
-        # qsub a child in the broker daemon's session.
-        own_session = command == "qsub"
         result = subprocess.run(
-            [binary, *args[1:]],
+            relay,
             text=True,
             capture_output=capture_output,
-            start_new_session=own_session,
             check=False,
         )
         return {
@@ -81,6 +96,7 @@ class PbsBroker:
             "cwd": str(Path.cwd()),
             "qsub_path": shutil.which("qsub"),
             "qstat_path": shutil.which("qstat"),
+            "ssh_host": self.ssh_host,
             "pbs_environment": _safe_pbs_environment(),
             "pbs_config": config,
             "endpoint": endpoint,
