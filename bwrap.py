@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 PBS_BROKER_PATH = REPO_ROOT / "pbs_broker"
 PBS_BROKER_DIR = str(PBS_BROKER_PATH.resolve())
 PBS_BROKER_MAIN = str((PBS_BROKER_PATH / "pbs_broker.py").resolve())
-PBS_BROKER_SOCKET_NAME = "pbs-broker.sock"
+BROKER_SOCKET_NAME = "pbs-broker.sock"
 
 
 def _bwrap_binary():
@@ -29,7 +29,7 @@ def _launch_dir():
 
 
 def _socket_path():
-    return str((Path(_launch_dir()) / PBS_BROKER_SOCKET_NAME).resolve())
+    return str((Path(_launch_dir()) / BROKER_SOCKET_NAME).resolve())
 
 
 def _wrapped_path():
@@ -42,7 +42,9 @@ def wrap_main(command, protected=True, broker_enabled=True):
     root_mode = ["--ro-bind", "/", "/"] if protected else ["--bind", "/", "/"]
     path = _wrapped_path() if protected and broker_enabled else os.environ.get("PATH", "")
     broker_environment = (
-        ["--setenv", "PBS_BROKER_SOCKET", _socket_path()] if broker_enabled else []
+        ["--setenv", "BWRAP_PBS_BROKER_SOCKET", _socket_path()]
+        if broker_enabled
+        else []
     )
     broker_mount = (
         ["--bind", PBS_BROKER_DIR, PBS_BROKER_DIR, "--remount-ro", PBS_BROKER_DIR]
@@ -70,7 +72,7 @@ def wrap_main(command, protected=True, broker_enabled=True):
 
 
 def _wait_for_broker(deadline):
-    environment = {**os.environ, "PBS_BROKER_SOCKET": _socket_path()}
+    environment = {**os.environ, "BWRAP_PBS_BROKER_SOCKET": _socket_path()}
     while time.monotonic() < deadline:
         probe = subprocess.run(
             [sys.executable, PBS_BROKER_MAIN, "close"],
@@ -88,7 +90,7 @@ def _wait_for_broker(deadline):
 def _start_broker():
     broker = subprocess.Popen(
         [sys.executable, PBS_BROKER_MAIN, "server"],
-        env={**os.environ, "PBS_BROKER_SOCKET": _socket_path()},
+        env={**os.environ, "BWRAP_PBS_BROKER_SOCKET": _socket_path()},
         start_new_session=True,
     )
     _wait_for_broker(time.monotonic() + 5)
@@ -98,7 +100,7 @@ def _start_broker():
 def _stop_broker(broker):
     subprocess.run(
         [sys.executable, PBS_BROKER_MAIN, "stop"],
-        env={**os.environ, "PBS_BROKER_SOCKET": _socket_path()},
+        env={**os.environ, "BWRAP_PBS_BROKER_SOCKET": _socket_path()},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -110,13 +112,37 @@ def _stop_broker(broker):
         broker.wait(timeout=5)
 
 
+def _print_broker_diagnostics():
+    """Start the normal host-side broker briefly and print its safe probe data."""
+    broker = _start_broker()
+    try:
+        result = subprocess.run(
+            [sys.executable, PBS_BROKER_MAIN, "diagnose"],
+            env={**os.environ, "BWRAP_PBS_BROKER_SOCKET": _socket_path()},
+            check=False,
+        )
+        raise SystemExit(result.returncode)
+    finally:
+        _stop_broker(broker)
+
+
 def main():
     parser = argparse.ArgumentParser()
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--unprotected", action="store_true")
     modes.add_argument("--no-broker", action="store_true")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="print the host-side broker's PBS configuration and qstat probe; submits no job",
+    )
     parser.add_argument("command", nargs="*")
     args = parser.parse_args()
+    if args.diagnose:
+        if args.command:
+            parser.error("--diagnose does not accept a command")
+        _print_broker_diagnostics()
+        return
     command = args.command or ["/bin/bash", "-i"]
     broker = None
     if not args.unprotected and not args.no_broker:
@@ -131,9 +157,6 @@ def main():
         if broker is not None:
             _stop_broker(broker)
 
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
