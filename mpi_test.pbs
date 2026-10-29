@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -N mpi-test
+#PBS -l select=2:ncpus=4:mpiprocs=4
+#PBS -l walltime=00:10:00
+#PBS -j oe
+#PBS -o mpi_test.$PBS_JOBID.log
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+
+# Replace mpiexec with your site's documented MPI launcher if it differs.
+mpiexec ./mpi_test

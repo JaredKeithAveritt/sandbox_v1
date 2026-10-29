@@ -22,7 +22,7 @@ fail() {
     printf 'FAILED: %s\n' "$*" >&2
     exit 1
 }
-for command in python3 bwrap qsub qstat qdel; do
+for command in python3 bwrap ssh qsub qstat qdel; do
     command -v "$command" >/dev/null || fail "required command not found: $command"
 done
 for file in bwrap.py pbs_broker/pbs_broker.py pbs_broker/pbs_client.py; do
