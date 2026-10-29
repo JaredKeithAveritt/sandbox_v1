@@ -89,8 +89,6 @@ def _start_broker():
     broker = subprocess.Popen(
         [sys.executable, PBS_BROKER_MAIN, "server"],
         env={**os.environ, "PBS_BROKER_SOCKET": _socket_path()},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
     _wait_for_broker(time.monotonic() + 5)
@@ -133,6 +131,9 @@ def main():
         if broker is not None:
             _stop_broker(broker)
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
