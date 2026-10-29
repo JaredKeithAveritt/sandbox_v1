@@ -37,10 +37,18 @@ def _wrapped_path():
     return f"{PBS_BROKER_DIR}:{path}" if path else PBS_BROKER_DIR
 
 
-def wrap_main(command, protected=True):
+def wrap_main(command, protected=True, broker_enabled=True):
     """Build the Bubblewrap command; the current directory remains writable."""
     root_mode = ["--ro-bind", "/", "/"] if protected else ["--bind", "/", "/"]
-    path = _wrapped_path() if protected else os.environ.get("PATH", "")
+    path = _wrapped_path() if protected and broker_enabled else os.environ.get("PATH", "")
+    broker_environment = (
+        ["--setenv", "PBS_BROKER_SOCKET", _socket_path()] if broker_enabled else []
+    )
+    broker_mount = (
+        ["--bind", PBS_BROKER_DIR, PBS_BROKER_DIR, "--remount-ro", PBS_BROKER_DIR]
+        if broker_enabled
+        else []
+    )
     return [
         _bwrap_binary(),
         *root_mode,
@@ -50,12 +58,11 @@ def wrap_main(command, protected=True):
         "--setenv", "HOME", _launch_dir(),
         "--setenv", "TMPDIR", _launch_dir(),
         "--setenv", "PATH", path,
-        "--setenv", "PBS_BROKER_SOCKET", _socket_path(),
+        *broker_environment,
         "--setenv", "PS1", "[bwrap-pbs] \\u@\\h:\\w\\$ ",
         "--chdir", _launch_dir(),
         "--bind", _launch_dir(), _launch_dir(),
-        "--bind", PBS_BROKER_DIR, PBS_BROKER_DIR,
-        "--remount-ro", PBS_BROKER_DIR,
+        *broker_mount,
         "--die-with-parent",
         "--",
         *command,
@@ -107,15 +114,21 @@ def _stop_broker(broker):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--unprotected", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--unprotected", action="store_true")
+    modes.add_argument("--no-broker", action="store_true")
     parser.add_argument("command", nargs="*")
     args = parser.parse_args()
     command = args.command or ["/bin/bash", "-i"]
     broker = None
-    if not args.unprotected:
+    if not args.unprotected and not args.no_broker:
         broker = _start_broker()
     try:
-        raise SystemExit(subprocess.run(wrap_main(command, not args.unprotected), check=False).returncode)
+        raise SystemExit(
+            subprocess.run(
+                wrap_main(command, not args.unprotected, not args.no_broker), check=False
+            ).returncode
+        )
     finally:
         if broker is not None:
             _stop_broker(broker)
