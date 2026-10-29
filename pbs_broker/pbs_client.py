@@ -7,7 +7,9 @@ import socket
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOCKET_PATH = Path(os.environ.get("PBS_BROKER_SOCKET", REPO_ROOT / "pbs-broker.sock"))
+SOCKET_PATH = Path(
+    os.environ.get("BWRAP_PBS_BROKER_SOCKET", REPO_ROOT / "pbs-broker.sock")
+)
 
 
 def main():
