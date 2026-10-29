@@ -91,7 +91,6 @@ def _start_broker():
     broker = subprocess.Popen(
         [sys.executable, PBS_BROKER_MAIN, "server"],
         env={**os.environ, "BWRAP_PBS_BROKER_SOCKET": _socket_path()},
-        start_new_session=True,
     )
     _wait_for_broker(time.monotonic() + 5)
     return broker
